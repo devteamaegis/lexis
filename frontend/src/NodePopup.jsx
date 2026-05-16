@@ -207,6 +207,35 @@ export default function NodePopup({ node, screenPos, onClose, onExpand, allNodes
                 Find related →
               </button>
             </div>
+            {node.abstract && (
+              <button
+                style={{
+                  ...S.btn(false),
+                  marginTop: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  width: "100%",
+                  borderColor: "rgba(0,191,165,0.35)",
+                  color: "var(--accent-teal, #00bfa5)",
+                }}
+                onClick={() => {
+                  if (!window.speechSynthesis) return;
+                  window.speechSynthesis.cancel();
+                  const utt = new SpeechSynthesisUtterance(node.abstract.slice(0, 400));
+                  utt.rate = 0.92; utt.pitch = 1.0;
+                  const voices = window.speechSynthesis.getVoices();
+                  const preferred = voices.find(v =>
+                    v.name.includes("Samantha") || v.name.includes("Google US English") || v.name.includes("Karen")
+                  );
+                  if (preferred) utt.voice = preferred;
+                  window.speechSynthesis.speak(utt);
+                }}
+              >
+                🔊 Read abstract aloud
+              </button>
+            )}
           </div>
         </div>
       </>

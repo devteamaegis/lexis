@@ -5,6 +5,7 @@ import NodePopup       from "./NodePopup.jsx";
 import RightPanel      from "./RightPanel.jsx";
 import VoiceAgent      from "./VoiceAgent.jsx";
 import LexisChat       from "./LexisChat.jsx";
+import TimelineView    from "./TimelineView.jsx";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const WS  = API.replace(/^http/, "ws") + "/ws";
@@ -69,7 +70,7 @@ function downloadBlob(content, filename, mime = "text/markdown") {
 }
 
 // ─── Canvas draw functions ────────────────────────────────────────────────────
-function makeDrawNode(selectedId) {
+function makeDrawNode(selectedId, pulsingIdsRef) {
   return function drawNode(node, ctx, globalScale) {
     const { x, y, kind } = node;
     const isSelected = node.id === selectedId;
@@ -197,6 +198,25 @@ function makeDrawNode(selectedId) {
     }
 
     ctx.restore();
+
+    // ── Pulse ring (gold) when AI mentions this node ───────────────────────────
+    if (pulsingIdsRef?.current?.has(node.id)) {
+      const pt = t * 0.005;
+      const approxR = kind === "Paper"
+        ? 6 + Math.min(Math.sqrt((node.citation_count ?? 0)) * 0.9, 12)
+        : kind === "Topic" ? 9 : 9;
+      const ring = approxR + 10 + 6 * Math.sin(pt);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x ?? 0, y ?? 0, ring, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,215,0,${0.5 + 0.5 * Math.abs(Math.sin(pt))})`;
+      ctx.lineWidth   = 2;
+      ctx.shadowBlur  = 14;
+      ctx.shadowColor = "rgba(255,200,0,0.8)";
+      ctx.stroke();
+      ctx.shadowBlur  = 0;
+      ctx.restore();
+    }
   };
 }
 
@@ -302,6 +322,10 @@ export default function App() {
   const [graphVersion, setGraphVersion] = useState(0);
   const [edgeTip,      setEdgeTip]      = useState(null); // { x, y, summary, loading, kind }
   const edgeTipTimer   = useRef(null);
+  const [viewMode,     setViewMode]     = useState("graph"); // "graph" | "timeline"
+  const [chatTrigger,  setChatTrigger]  = useState(null);   // message to auto-send in LexisChat
+  const pulsingNodesRef = useRef(new Set());
+  const pulseIntervalRef = useRef(null);
 
   const graphRef      = useRef();
   const wsRef         = useRef(null);
@@ -316,7 +340,7 @@ export default function App() {
   const forcesSet      = useRef(false);   // ensure we configure d3 forces once per simulation
 
   const sensitivityLabels  = ["Loose", "Balanced", "Strict"];
-  const sensitivityThresh  = [4, 2, 1];
+  const sensitivityThresh  = [3, 1, 0];
 
   // ─── Track container size for ForceGraph2D ────────────────────────────────
   useEffect(() => {
@@ -500,6 +524,30 @@ export default function App() {
     setGraphVersion(v => v + 1);
   }, []);
 
+  // ─── Pulse nodes (gold ring for 3 s) — called by LexisChat when AI cites PMIDs ──
+  const pulseNodes = useCallback((ids) => {
+    if (!ids?.length) return;
+    ids.forEach(id => pulsingNodesRef.current.add(id));
+    graphRef.current?.refresh?.();
+
+    // Animate at ~30 fps while pulsing
+    if (!pulseIntervalRef.current) {
+      pulseIntervalRef.current = setInterval(() => {
+        graphRef.current?.refresh?.();
+      }, 33);
+    }
+
+    // Remove after 3 s
+    setTimeout(() => {
+      ids.forEach(id => pulsingNodesRef.current.delete(id));
+      if (pulsingNodesRef.current.size === 0) {
+        clearInterval(pulseIntervalRef.current);
+        pulseIntervalRef.current = null;
+      }
+      graphRef.current?.refresh?.();
+    }, 3000);
+  }, []);
+
   // ─── Node expansion ────────────────────────────────────────────────────────
   const expandNode = useCallback(async (pmid) => {
     setLog(prev => [`↗ Expanding PMID:${pmid}…`, ...prev]);
@@ -666,7 +714,7 @@ export default function App() {
 
   // ─── Canvas draw (memoized on selected node) ───────────────────────────────
   const selectedId   = popup?.node?.id ?? null;
-  const drawNode     = useMemo(() => makeDrawNode(selectedId), [selectedId]);
+  const drawNode     = useMemo(() => makeDrawNode(selectedId, pulsingNodesRef), [selectedId]);
   const drawLinkCb   = useCallback((link, ctx, scale) => drawLink(link, ctx, scale, hoveredLinkRef), []);
 
   const papers = allNodesRef.current.filter(n => n.kind === "Paper");
@@ -748,6 +796,18 @@ export default function App() {
           <div style={{ display: "flex", gap: 6 }}>
             <button onClick={exportMarkdown} style={btnStyle}>Export MD ↓</button>
             <button onClick={exportJSON}     style={btnStyle}>Export JSON ↓</button>
+            <button
+              onClick={() => setChatTrigger(
+                "What is the most counterintuitive or surprising research gap in this graph? Pick exactly one gap, name it clearly, and explain in 2–3 sentences why it would surprise a scientist."
+              )}
+              style={{ ...btnStyle, background: "rgba(255,171,64,0.12)", borderColor: "rgba(255,171,64,0.4)", color: "#ffab40" }}
+              title="AI picks the most surprising gap"
+            >✦ Surprise me</button>
+            <button
+              onClick={() => setViewMode(v => v === "graph" ? "timeline" : "graph")}
+              style={{ ...btnStyle, background: viewMode === "timeline" ? "rgba(0,191,165,0.15)" : "transparent", borderColor: viewMode === "timeline" ? "rgba(0,191,165,0.5)" : "var(--star-faint)", color: viewMode === "timeline" ? "var(--accent-teal)" : "var(--star-dim)" }}
+              title="Switch between graph and timeline view"
+            >{viewMode === "graph" ? "📅 Timeline" : "⬡ Graph"}</button>
           </div>
         )}
 
@@ -760,11 +820,21 @@ export default function App() {
       {/* ── Body ── */}
       <div style={{ display: "flex", overflow: "hidden", position: "relative" }}>
 
-        {/* Graph area */}
+        {/* Graph / Timeline area */}
         <div ref={graphWrap} style={{ flex: 1, position: "relative", overflow: "hidden" }}>
           <StarfieldCanvas />
 
-          <div style={{ position: "absolute", inset: 0, zIndex: 1 }}>
+          {/* ── Timeline view ── */}
+          {viewMode === "timeline" && (
+            <div style={{ position: "absolute", inset: 0, zIndex: 2 }}>
+              <TimelineView
+                nodes={allNodesRef.current}
+                onNodeClick={handleNodeClick}
+              />
+            </div>
+          )}
+
+          <div style={{ position: "absolute", inset: 0, zIndex: 1, display: viewMode === "timeline" ? "none" : "block" }}>
             <ForceGraph2D
               ref={graphRef}
               graphData={graphData}
@@ -788,7 +858,7 @@ export default function App() {
                 ctx.arc(node.x ?? 0, node.y ?? 0, r, 0, Math.PI * 2);
                 ctx.fill();
               }}
-              onEngineStop={() => graphRef.current?.zoomToFit(500, 60)}
+              onEngineStop={() => { if (status === "done") graphRef.current?.zoomToFit(500, 60); }}
             />
           </div>
 
@@ -887,6 +957,9 @@ export default function App() {
         sessionId="default"
         synthesis={synthesis}
         gaps={gaps}
+        initialMessage={chatTrigger}
+        onInitialMessageSent={() => setChatTrigger(null)}
+        onPulseNodes={pulseNodes}
       />
 
       {/* ── Footer ── */}

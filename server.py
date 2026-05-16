@@ -15,6 +15,7 @@ from urllib.request import urlopen, Request
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from litellm import completion as _llm
 
 from lexis_pubmed import fetch_papers, fetch_abstracts
@@ -319,7 +320,7 @@ def _pipeline(query: str, max_papers: int, session_id: str = "default",
     print(f"[lexis] Topics: {len(topic_index)}")
 
     # ── Phase 5: gap detection ─────────────────────────────────────────────────
-    gap_events = run_gap_detection(pmid_to_rec, topic_index, threshold=2)
+    gap_events = run_gap_detection(pmid_to_rec, topic_index, threshold=1)
     gaps_found = 0
     for ev in gap_events:
         emit(ev)
@@ -619,9 +620,8 @@ Do not start with "As an AI" or similar. Start with the substance."""
         except Exception as e:
             yield f"[Error: {str(e)[:80]}]"
 
-    from fastapi.responses import StreamingResponse as _SR
-    return _SR(stream_response(), media_type="text/plain; charset=utf-8",
-               headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(stream_response(), media_type="text/plain; charset=utf-8",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/edge-summary")

@@ -179,9 +179,9 @@ export default function VoiceAgent({
       handleTranscript(t);
     };
     recog.onerror  = () => { setState("idle"); showToast("Didn't catch that."); };
-    recog.onend    = () => { if (state === "listening") setState("idle"); };
+    recog.onend    = () => { setState("idle"); };
     recog.start();
-  }, [handleTranscript, showToast, state]);
+  }, [handleTranscript, showToast]);
 
   const stopListening = useCallback(() => {
     recogRef.current?.stop();

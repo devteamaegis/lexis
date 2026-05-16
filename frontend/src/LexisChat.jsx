@@ -107,8 +107,23 @@ function Chip({ label, onClick }) {
   );
 }
 
+// ─── Extract PMIDs from text ──────────────────────────────────────────────────
+function extractPmids(text) {
+  // Match explicit "PMID:12345678" or bare 7-8 digit sequences
+  const matches = [...text.matchAll(/(?:PMID:?|pmid:?)?\b(\d{7,8})\b/g)];
+  return [...new Set(matches.map(m => m[1]))];
+}
+
 // ─── Main chat widget ─────────────────────────────────────────────────────────
-export default function LexisChat({ selectedNode, sessionId = "default", synthesis, gaps }) {
+export default function LexisChat({
+  selectedNode,
+  sessionId = "default",
+  synthesis,
+  gaps,
+  initialMessage = null,
+  onInitialMessageSent = null,
+  onPulseNodes = null,
+}) {
   const [open,       setOpen]      = useState(false);
   const [mode,       setMode]      = useState("idle");
   const [messages,   setMessages]  = useState([]);
@@ -148,6 +163,19 @@ export default function LexisChat({ selectedNode, sessionId = "default", synthes
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Auto-open + auto-send when App triggers a message (e.g. "Surprise me")
+  useEffect(() => {
+    if (!initialMessage) return;
+    setOpen(true);
+    // Small delay so the panel animates open first
+    const t = setTimeout(() => {
+      sendRef.current(initialMessage);
+      onInitialMessageSent?.();
+    }, 180);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMessage]);
 
   // Voice output
   const speak = useCallback((text) => {
@@ -205,7 +233,14 @@ export default function LexisChat({ selectedNode, sessionId = "default", synthes
 
       setMessages(prev => [...prev, { role: "assistant", content: full }]);
       setStreaming("");
-      speak(full);
+      // Pulse any graph nodes whose PMIDs the AI mentioned
+      const pmids = extractPmids(full);
+      if (pmids.length > 0) onPulseNodes?.(pmids);
+      if (synthRef.current) {
+        speak(full);
+      } else {
+        setMode("idle");
+      }
     } catch (e) {
       if (e.name !== "AbortError") {
         setMode("error");

@@ -1,4 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+
+const API = typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL
+  ? import.meta.env.VITE_API_URL
+  : "http://localhost:8000";
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 const S = {
@@ -224,6 +228,45 @@ function OverviewTab({ stats, synthesis, log }) {
 // ─── Tab: Gaps ────────────────────────────────────────────────────────────────
 function GapsTab({ gaps, onGapClick }) {
   const sorted = [...gaps].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+  const [agenda,       setAgenda]      = useState("");
+  const [agendaLoading, setAgendaLoading] = useState(false);
+
+  const fetchAgenda = useCallback(async () => {
+    if (!gaps.length || agendaLoading) return;
+    setAgendaLoading(true);
+    setAgenda("");
+    try {
+      const gapSummaries = gaps.slice(0, 6).map((g, i) =>
+        `Gap ${i + 1}: ${g.description} (confidence ${((g.confidence ?? 0) * 100).toFixed(0)}%)`
+      ).join("\n");
+
+      const res = await fetch(`${API}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [{
+            role: "user",
+            content: `Based on these research gaps:\n${gapSummaries}\n\nGenerate a prioritized 3-step research agenda. Format as:\n**Step 1 — [Title]**: [1 sentence rationale]\n**Step 2 — [Title]**: [1 sentence rationale]\n**Step 3 — [Title]**: [1 sentence rationale]`,
+          }],
+          session_id: "default",
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let full = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        full += dec.decode(value, { stream: true });
+        setAgenda(full);
+      }
+    } catch (e) {
+      setAgenda("Could not generate agenda — make sure the backend is running.");
+    } finally {
+      setAgendaLoading(false);
+    }
+  }, [gaps, agendaLoading]);
 
   if (sorted.length === 0) {
     return (
@@ -238,6 +281,44 @@ function GapsTab({ gaps, onGapClick }) {
 
   return (
     <div style={S.scrollArea}>
+      {/* Research Agenda button */}
+      <button
+        onClick={fetchAgenda}
+        disabled={agendaLoading}
+        style={{
+          width: "100%", marginBottom: 10,
+          padding: "8px 0", borderRadius: 8,
+          border: "1px solid rgba(124,77,255,0.45)",
+          background: agendaLoading ? "rgba(124,77,255,0.08)" : "rgba(124,77,255,0.14)",
+          color: agendaLoading ? "rgba(124,77,255,0.5)" : "#c9b8ff",
+          fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
+          cursor: agendaLoading ? "default" : "pointer",
+          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+          textTransform: "uppercase",
+          transition: "all 0.2s",
+        }}
+      >
+        {agendaLoading ? "⏳ Generating…" : "✦ Research Next Steps"}
+      </button>
+
+      {/* Agenda result */}
+      {agenda && (
+        <div style={{
+          marginBottom: 14, padding: "10px 12px",
+          background: "rgba(124,77,255,0.07)",
+          border: "1px solid rgba(124,77,255,0.2)",
+          borderRadius: 8,
+          fontSize: 11, lineHeight: 1.7, color: "var(--star-dim)",
+          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+          whiteSpace: "pre-wrap",
+        }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: "#c9b8ff", textTransform: "uppercase", marginBottom: 6 }}>
+            AI RESEARCH AGENDA
+          </div>
+          {agenda}
+        </div>
+      )}
+
       {sorted.map((g, i) => {
         const pct = ((g.confidence ?? 0) * 100).toFixed(0);
         return (
