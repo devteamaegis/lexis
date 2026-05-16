@@ -534,6 +534,96 @@ async def redetect_gaps(body: dict) -> dict:
         return {"events": [], "error": str(e)}
 
 
+@app.post("/chat")
+async def lexis_chat(body: dict):
+    """Streaming conversational AI with full session context injected into system prompt."""
+    messages    = body.get("messages", [])
+    session_id  = body.get("session_id", "default")
+    sel_node    = body.get("selected_node", None)   # currently selected graph node
+
+    session     = _sessions.get(session_id, {})
+    pmid_to_rec = session.get("pmid_to_rec", {})
+    topic_index = session.get("topic_index", {})
+    query       = session.get("query", "a biomedical topic")
+
+    # Build a rich context block
+    papers_text = ""
+    if pmid_to_rec:
+        for r in list(pmid_to_rec.values())[:20]:
+            ab = (r.get("abstract") or "")[:180].replace("\n", " ")
+            papers_text += f"  • PMID:{r['pmid']} ({r.get('year','?')}): \"{r['title']}\" — {ab}…\n"
+
+    topics_sample = ", ".join(list(topic_index.keys())[:25]) or "none extracted yet"
+
+    selected_ctx = ""
+    if sel_node:
+        kind = sel_node.get("kind", "")
+        if kind == "Paper":
+            rec = pmid_to_rec.get(sel_node.get("id"), {})
+            if rec:
+                selected_ctx = (
+                    f"\n\nFOCUS — The user is looking at this paper:\n"
+                    f"  Title: \"{rec.get('title','')}\"\n"
+                    f"  PMID: {rec.get('pmid','')}, Year: {rec.get('year','')}\n"
+                    f"  Abstract: {(rec.get('abstract',''))[:400]}"
+                )
+        elif kind == "ResearchGap":
+            selected_ctx = (
+                f"\n\nFOCUS — The user is looking at this research gap:\n"
+                f"  Gap: {sel_node.get('description','')}\n"
+                f"  Suggested direction: {sel_node.get('suggested_direction','')}\n"
+                f"  Confidence: {sel_node.get('confidence', 0):.0%}"
+            )
+        elif kind == "Topic":
+            selected_ctx = (
+                f"\n\nFOCUS — The user is looking at the topic cluster: \"{sel_node.get('keyword','')}\"\n"
+                f"  Papers in this cluster: {sel_node.get('paper_count', 0)}"
+            )
+
+    system = f"""You are Lexis, an expert AI research assistant embedded in an interactive biomedical literature analysis tool.
+
+The user ran this query: "{query}"
+
+Papers currently loaded ({len(pmid_to_rec)} total):
+{papers_text}
+Semantic topics extracted: {topics_sample}
+{selected_ctx}
+
+Your role:
+- Discuss, synthesize, and challenge ideas about this specific literature
+- Reference paper titles and PMIDs when relevant ("The 2022 paper by Zhang et al. (PMID:38123456)...")
+- Help the user understand research gaps and what they mean scientifically
+- Be direct, concise (≤120 words unless asked for more), and intellectually honest
+- You CAN disagree with the user — push back if they misinterpret the evidence
+- If the user asks about a specific paper, use its abstract to give a detailed answer
+- If the user challenges a finding, engage with the argument critically
+
+Do not start with "As an AI" or similar. Start with the substance."""
+
+    async def stream_response():
+        try:
+            resp = _llm(
+                model="claude-haiku-4-5",
+                messages=[{"role": "system", "content": system}] + [
+                    {"role": m["role"], "content": m["content"]} for m in messages
+                ],
+                max_tokens=350,
+                temperature=0.45,
+                api_key=os.environ.get("ANTHROPIC_API_KEY"),
+                stream=True,
+            )
+            for chunk in resp:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+        except Exception as e:
+            yield f"[Error: {str(e)[:80]}]"
+
+    from fastapi.responses import StreamingResponse as _SR
+    return _SR(stream_response(), media_type="text/plain; charset=utf-8",
+               headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.post("/edge-summary")
 async def edge_summary(body: dict) -> dict:
     """Return an AI explanation of why two papers are connected."""

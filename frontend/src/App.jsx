@@ -4,6 +4,7 @@ import StarfieldCanvas from "./StarfieldCanvas.jsx";
 import NodePopup       from "./NodePopup.jsx";
 import RightPanel      from "./RightPanel.jsx";
 import VoiceAgent      from "./VoiceAgent.jsx";
+import LexisChat       from "./LexisChat.jsx";
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const WS  = API.replace(/^http/, "ws") + "/ws";
@@ -879,6 +880,14 @@ export default function App() {
           onPaperClick={handlePaperClick}
         />
       </div>
+
+      {/* ── Lexis AI chat ── */}
+      <LexisChat
+        selectedNode={popup?.node ?? null}
+        sessionId="default"
+        synthesis={synthesis}
+        gaps={gaps}
+      />
 
       {/* ── Footer ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 20px", background: "rgba(2,4,8,0.95)", backdropFilter: "blur(12px)", borderTop: "1px solid var(--star-faint)", zIndex: 10 }}>
