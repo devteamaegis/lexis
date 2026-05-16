@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import ForceGraph2D from "react-force-graph-2d";
+import ForceGraph3D from "react-force-graph-3d";
+import * as THREE from "three";
 import StarfieldCanvas from "./StarfieldCanvas.jsx";
 import NodePopup       from "./NodePopup.jsx";
 import RightPanel      from "./RightPanel.jsx";
@@ -69,241 +70,111 @@ function downloadBlob(content, filename, mime = "text/markdown") {
   URL.revokeObjectURL(url);
 }
 
-// ─── Canvas draw functions ────────────────────────────────────────────────────
-function makeDrawNode(selectedId, pulsingIdsRef) {
-  return function drawNode(node, ctx, globalScale) {
-    const { x, y, kind } = node;
-    const isSelected = node.id === selectedId;
-    const t = Date.now();
-
-    ctx.save();
-
-    if (kind === "Paper") {
-      const r = 6 + Math.min(Math.sqrt((node.citation_count ?? 0)) * 0.9, 12);
-      // Glow
-      ctx.shadowBlur  = isSelected ? 40 : 20;
-      ctx.shadowColor = "#7c4dff";
-      // Radial gradient fill
-      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-      grad.addColorStop(0, "#c9b8ff");
-      grad.addColorStop(1, "#7c4dff");
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // 4-point star spike
-      ctx.globalAlpha = 0.6;
-      ctx.strokeStyle = "#e8e0ff";
-      ctx.lineWidth   = 0.8 / globalScale;
-      const sp = r * 1.6;
-      ctx.beginPath();
-      ctx.moveTo(x, y - sp); ctx.lineTo(x, y + sp);
-      ctx.moveTo(x - sp, y); ctx.lineTo(x + sp, y);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-
-      // Selected ring
-      if (isSelected) {
-        const pulse = 1 + 0.15 * Math.sin(t * 0.004);
-        ctx.beginPath();
-        ctx.arc(x, y, r * pulse + 4, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(124,77,255,0.6)";
-        ctx.lineWidth   = 1.5 / globalScale;
-        ctx.stroke();
-      }
-
-    } else if (kind === "Topic") {
-      const r = 9;
-      ctx.shadowBlur  = 25;
-      ctx.shadowColor = "#00bfa5";
-      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-      grad.addColorStop(0, "#80cbc4");
-      grad.addColorStop(1, "#00796b");
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // Orbiting dots representing connected papers
-      ctx.fillStyle = "rgba(178,223,219,0.6)";
-      for (let i = 0; i < 6; i++) {
-        const angle = (i / 6) * Math.PI * 2;
-        const ox = x + Math.cos(angle) * 14;
-        const oy = y + Math.sin(angle) * 14;
-        ctx.beginPath();
-        ctx.arc(ox, oy, 1, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Label when zoomed in
-      if (globalScale > 0.6) {
-        ctx.shadowBlur = 0;
-        ctx.font = `${10 / globalScale}px 'Space Grotesk', system-ui`;
-        ctx.fillStyle   = "var(--accent-teal, #00bfa5)";
-        ctx.textAlign   = "center";
-        ctx.fillText(node.keyword ?? "", x, y + r + 10 / globalScale);
-      }
-
-    } else if (kind === "ResearchGap") {
-      const pulse = 7 + 3 * Math.sin(t * 0.003);
-      // Outer dashed exclusion zone
-      ctx.setLineDash([3, 4]);
-      ctx.beginPath();
-      ctx.arc(x, y, 30, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(255,255,255,0.1)";
-      ctx.lineWidth   = 0.5 / globalScale;
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Rotating ring of dots
-      const ringR = 18;
-      const dotAngle = (t * 0.001) % (Math.PI * 2);
-      ctx.fillStyle = "rgba(255,255,255,0.5)";
-      for (let i = 0; i < 8; i++) {
-        const a = dotAngle + (i / 8) * Math.PI * 2;
-        ctx.beginPath();
-        ctx.arc(x + Math.cos(a) * ringR, y + Math.sin(a) * ringR, 1.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Glow + fill
-      ctx.shadowBlur  = 35;
-      ctx.shadowColor = "rgba(255,255,255,0.9)";
-      const grad = ctx.createRadialGradient(x, y, 0, x, y, pulse);
-      grad.addColorStop(0, "#ffffff");
-      grad.addColorStop(1, "rgba(200,220,255,0.8)");
-      ctx.beginPath();
-      ctx.arc(x, y, pulse, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // 8-point star (two overlapping 4-point crosses at 45° offset)
-      ctx.globalAlpha = 0.7;
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth   = 0.8 / globalScale;
-      for (const offset of [0, Math.PI / 4]) {
-        const sp = pulse * 1.7;
-        ctx.beginPath();
-        ctx.moveTo(x + Math.cos(offset) * sp, y + Math.sin(offset) * sp);
-        ctx.lineTo(x - Math.cos(offset) * sp, y - Math.sin(offset) * sp);
-        ctx.moveTo(x + Math.cos(offset + Math.PI / 2) * sp, y + Math.sin(offset + Math.PI / 2) * sp);
-        ctx.lineTo(x - Math.cos(offset + Math.PI / 2) * sp, y - Math.sin(offset + Math.PI / 2) * sp);
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    ctx.restore();
-
-    // ── Pulse ring (gold) when AI mentions this node ───────────────────────────
-    if (pulsingIdsRef?.current?.has(node.id)) {
-      const pt = t * 0.005;
-      const approxR = kind === "Paper"
-        ? 6 + Math.min(Math.sqrt((node.citation_count ?? 0)) * 0.9, 12)
-        : kind === "Topic" ? 9 : 9;
-      const ring = approxR + 10 + 6 * Math.sin(pt);
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(x ?? 0, y ?? 0, ring, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255,215,0,${0.5 + 0.5 * Math.abs(Math.sin(pt))})`;
-      ctx.lineWidth   = 2;
-      ctx.shadowBlur  = 14;
-      ctx.shadowColor = "rgba(255,200,0,0.8)";
-      ctx.stroke();
-      ctx.shadowBlur  = 0;
-      ctx.restore();
-    }
-  };
+// ─── Three.js node factory (3D) ───────────────────────────────────────────────
+function makeGlowSprite(color, size) {
+  const mat = new THREE.SpriteMaterial({
+    color,
+    transparent: true,
+    opacity: 0.28,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const s = new THREE.Sprite(mat);
+  s.scale.set(size, size, 1);
+  return s;
 }
 
-function drawLink(link, ctx, globalScale, hoveredRef) {
-  const src = typeof link.source === "object" ? link.source : { x: 0, y: 0 };
-  const dst = typeof link.target === "object" ? link.target : { x: 0, y: 0 };
-  const isHovered = hoveredRef?.current === link;
+function buildNodeObject(node, isSelected) {
+  const { kind } = node;
+  const group = new THREE.Group();
 
-  ctx.save();
+  if (kind === "Paper") {
+    const r = 3.5 + Math.min(Math.sqrt(node.citation_count ?? 0) * 0.55, 7);
+    const geo  = new THREE.SphereGeometry(r, 20, 20);
+    const mat  = new THREE.MeshPhongMaterial({
+      color:            0x7c4dff,
+      emissive:         0x3d1aff,
+      emissiveIntensity: isSelected ? 0.8 : 0.35,
+      shininess:        140,
+      transparent:      true,
+      opacity:          0.95,
+    });
+    group.add(new THREE.Mesh(geo, mat));
 
-  if (link.kind === "Cites") {
-    // Bold amber line with a flowing particle
-    ctx.globalAlpha = isHovered ? 1 : 0.85;
-    ctx.strokeStyle = isHovered ? "#ffd080" : "#ffab40";
-    ctx.lineWidth   = isHovered ? 2.5 : 1.5;
-    ctx.setLineDash([]);
-    if (isHovered) { ctx.shadowBlur = 12; ctx.shadowColor = "#ffab40"; }
-    ctx.beginPath();
-    ctx.moveTo(src.x, src.y);
-    ctx.lineTo(dst.x, dst.y);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+    // Shimmering second layer
+    const outerMat = new THREE.MeshPhongMaterial({
+      color: 0xc9b8ff, emissive: 0x9c7aff,
+      emissiveIntensity: 0.2, shininess: 60,
+      transparent: true, opacity: 0.18, wireframe: true,
+    });
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(r + 0.5, 10, 10), outerMat));
 
-    // Arrowhead at destination
-    const angle = Math.atan2(dst.y - src.y, dst.x - src.x);
-    const aLen  = 6;
-    ctx.fillStyle = "#ffab40";
-    ctx.beginPath();
-    ctx.moveTo(dst.x, dst.y);
-    ctx.lineTo(dst.x - aLen * Math.cos(angle - 0.4), dst.y - aLen * Math.sin(angle - 0.4));
-    ctx.lineTo(dst.x - aLen * Math.cos(angle + 0.4), dst.y - aLen * Math.sin(angle + 0.4));
-    ctx.closePath();
-    ctx.fill();
+    group.add(makeGlowSprite(0x7c4dff, r * 9));
 
-    // Flowing particle
-    const offset = link.__particleOffset ?? 0;
-    const t = ((Date.now() / 3000) + offset) % 1;
-    const px = src.x + (dst.x - src.x) * t;
-    const py = src.y + (dst.y - src.y) * t;
-    ctx.shadowBlur  = 8;
-    ctx.shadowColor = "#ffab40";
-    ctx.fillStyle   = "rgba(255,171,64,0.9)";
-    ctx.beginPath();
-    ctx.arc(px, py, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
+    if (isSelected) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(r + 3.5, 0.9, 8, 36),
+        new THREE.MeshBasicMaterial({ color: 0xc9b8ff, transparent: true, opacity: 0.75 })
+      );
+      ring.name = "sel-ring";
+      group.add(ring);
+    }
 
-  } else if (link.kind === "HasTopic") {
-    // Teal connection from paper to topic — clearly visible
-    ctx.globalAlpha = isHovered ? 1 : 0.55;
-    ctx.strokeStyle = isHovered ? "rgba(0,230,200,0.9)" : "rgba(0,191,165,0.75)";
-    ctx.lineWidth   = isHovered ? 2 : 1.2;
-    ctx.setLineDash([4, 4]);
-    if (isHovered) { ctx.shadowBlur = 10; ctx.shadowColor = "#00bfa5"; }
-    ctx.beginPath();
-    ctx.moveTo(src.x, src.y);
-    ctx.lineTo(dst.x, dst.y);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+  } else if (kind === "Topic") {
+    const geo = new THREE.OctahedronGeometry(5.5, 0);
+    const mat = new THREE.MeshPhongMaterial({
+      color: 0x00bfa5, emissive: 0x004d40, emissiveIntensity: 0.55,
+      shininess: 100, transparent: true, opacity: 0.92,
+    });
+    group.add(new THREE.Mesh(geo, mat));
 
-  } else if (link.kind === "NearGap") {
-    // White dashed gap connection
-    ctx.globalAlpha = isHovered ? 0.8 : 0.45;
-    ctx.strokeStyle = "rgba(255,255,255,0.7)";
-    ctx.lineWidth   = isHovered ? 1.5 : 1;
-    ctx.setLineDash([3, 5]);
-    ctx.beginPath();
-    ctx.moveTo(src.x, src.y);
-    ctx.lineTo(dst.x, dst.y);
-    ctx.stroke();
+    const wireMat = new THREE.MeshBasicMaterial({
+      color: 0x80cbc4, wireframe: true, transparent: true, opacity: 0.25,
+    });
+    group.add(new THREE.Mesh(new THREE.OctahedronGeometry(6.2, 0), wireMat));
+    group.add(makeGlowSprite(0x00bfa5, 40));
 
-  } else if (link.kind === "Semantic") {
-    // Cyan semantic similarity edge
-    ctx.globalAlpha = isHovered ? 1 : 0.5;
-    ctx.strokeStyle = isHovered ? "rgba(100,220,255,0.9)" : "rgba(79,195,247,0.65)";
-    ctx.lineWidth   = isHovered ? 2 : 1;
-    ctx.setLineDash([5, 3]);
-    if (isHovered) { ctx.shadowBlur = 10; ctx.shadowColor = "#4fc3f7"; }
-    ctx.beginPath();
-    ctx.moveTo(src.x, src.y);
-    ctx.lineTo(dst.x, dst.y);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+    // Floating label sprite
+    const canvas = document.createElement("canvas");
+    canvas.width  = 256; canvas.height = 64;
+    const c = canvas.getContext("2d");
+    c.font = "bold 22px 'Space Grotesk', system-ui, sans-serif";
+    c.fillStyle = "rgba(128,203,196,0.95)";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText((node.keyword ?? "").slice(0, 22), 128, 32);
+    const tex = new THREE.CanvasTexture(canvas);
+    const lblMat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.9, depthWrite: false });
+    const lbl = new THREE.Sprite(lblMat);
+    lbl.scale.set(28, 7, 1);
+    lbl.position.set(0, 12, 0);
+    lbl.name = "label";
+    group.add(lbl);
+
+  } else if (kind === "ResearchGap") {
+    const geo  = new THREE.IcosahedronGeometry(6, 0);
+    const mat  = new THREE.MeshPhongMaterial({
+      color: 0xffffff, emissive: 0x9090ff, emissiveIntensity: 0.55,
+      shininess: 220, transparent: true, opacity: 0.93,
+    });
+    group.add(new THREE.Mesh(geo, mat));
+
+    const wireMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff, wireframe: true, transparent: true, opacity: 0.22,
+    });
+    group.add(new THREE.Mesh(new THREE.IcosahedronGeometry(8, 0), wireMat));
+    group.add(makeGlowSprite(0xffffff, 60));
   }
 
-  ctx.setLineDash([]);
-  ctx.restore();
+  return group;
+}
+
+function makeNodeThreeObject(selectedId) {
+  return function (node) {
+    const obj = buildNodeObject(node, node.id === selectedId);
+    node.__threeObj = obj;   // store ref for direct pulse manipulation
+    return obj;
+  };
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -330,28 +201,14 @@ export default function App() {
   const graphRef      = useRef();
   const wsRef         = useRef(null);
   const graphWrap     = useRef();
-  const hoveredLinkRef = useRef(null);
   const allNodesRef   = useRef([]);
   const allLinksRef   = useRef([]);
   const nodeIds       = useRef(new Set());
   const edgeIds       = useRef(new Set());
-  const [graphDims,   setGraphDims]   = useState({ w: 800, h: 600 });
-  const firstNodeRef   = useRef(false);   // track whether we've zoomed to fit yet
-  const forcesSet      = useRef(false);   // ensure we configure d3 forces once per simulation
+  const firstNodeRef   = useRef(false);
 
   const sensitivityLabels  = ["Loose", "Balanced", "Strict"];
   const sensitivityThresh  = [3, 1, 0];
-
-  // ─── Track container size for ForceGraph2D ────────────────────────────────
-  useEffect(() => {
-    if (!graphWrap.current) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      if (width > 0 && height > 0) setGraphDims({ w: Math.floor(width), h: Math.floor(height) });
-    });
-    ro.observe(graphWrap.current);
-    return () => ro.disconnect();
-  }, []);
 
   // ─── Filtered graph ────────────────────────────────────────────────────────
   const graphData = useMemo(() => {
@@ -385,10 +242,12 @@ export default function App() {
     const radii  = { Paper: 180, Topic: 340, ResearchGap: 500 };
     const base   = radii[node.kind] ?? 250;
     const jitter = (Math.random() - 0.5) * 80;
+    const zSpread = { Paper: 60, Topic: 100, ResearchGap: 140 }[node.kind] ?? 80;
     const nodeWithPos = {
       ...node,
       x: Math.cos(angle) * (base + jitter),
       y: Math.sin(angle) * (base + jitter),
+      z: (Math.random() - 0.5) * zSpread,
     };
 
     allNodesRef.current = [...allNodesRef.current, nodeWithPos];
@@ -524,27 +383,34 @@ export default function App() {
     setGraphVersion(v => v + 1);
   }, []);
 
-  // ─── Pulse nodes (gold ring for 3 s) — called by LexisChat when AI cites PMIDs ──
+  // ─── Pulse nodes (gold torus ring for 3 s) — called by LexisChat ─────────────
   const pulseNodes = useCallback((ids) => {
     if (!ids?.length) return;
-    ids.forEach(id => pulsingNodesRef.current.add(id));
-    graphRef.current?.refresh?.();
-
-    // Animate at ~30 fps while pulsing
-    if (!pulseIntervalRef.current) {
-      pulseIntervalRef.current = setInterval(() => {
-        graphRef.current?.refresh?.();
-      }, 33);
-    }
-
-    // Remove after 3 s
-    setTimeout(() => {
-      ids.forEach(id => pulsingNodesRef.current.delete(id));
-      if (pulsingNodesRef.current.size === 0) {
-        clearInterval(pulseIntervalRef.current);
-        pulseIntervalRef.current = null;
+    ids.forEach(id => {
+      pulsingNodesRef.current.add(id);
+      const node = allNodesRef.current.find(n => n.id === id);
+      if (node?.__threeObj) {
+        const r = node.kind === "Paper"
+          ? 3.5 + Math.min(Math.sqrt(node.citation_count ?? 0) * 0.55, 7)
+          : 6;
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(r + 9, 1.4, 8, 36),
+          new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.9 })
+        );
+        ring.name = "pulse-ring";
+        node.__threeObj.add(ring);
       }
-      graphRef.current?.refresh?.();
+    });
+
+    setTimeout(() => {
+      ids.forEach(id => {
+        pulsingNodesRef.current.delete(id);
+        const node = allNodesRef.current.find(n => n.id === id);
+        if (node?.__threeObj) {
+          const ring = node.__threeObj.getObjectByName("pulse-ring");
+          if (ring) node.__threeObj.remove(ring);
+        }
+      });
     }, 3000);
   }, []);
 
@@ -595,13 +461,13 @@ export default function App() {
   // ─── Node click — show popup ───────────────────────────────────────────────
   const handleNodeClick = useCallback((node) => {
     if (!graphRef.current) return;
-    const screenPos = graphRef.current.graph2ScreenCoords(node.x, node.y);
+    const screenPos = graphRef.current.graph2ScreenCoords(node.x ?? 0, node.y ?? 0, node.z ?? 0);
     const wrapRect  = graphWrap.current?.getBoundingClientRect();
     setPopup({
       node,
       screenPos: {
-        x: screenPos.x + (wrapRect?.left ?? 0),
-        y: screenPos.y + (wrapRect?.top  ?? 0),
+        x: (screenPos?.x ?? 0) + (wrapRect?.left ?? 0),
+        y: (screenPos?.y ?? 0) + (wrapRect?.top  ?? 0),
       },
     });
   }, []);
@@ -610,8 +476,11 @@ export default function App() {
   const handleGapClick = useCallback((gap, i) => {
     const gapNode = allNodesRef.current.find(n => n.id === `gap_${i + 1}`);
     if (gapNode && graphRef.current) {
-      graphRef.current.centerAt(gapNode.x, gapNode.y, 600);
-      graphRef.current.zoom(2.5, 600);
+      graphRef.current.cameraPosition(
+        { x: gapNode.x, y: gapNode.y, z: (gapNode.z ?? 0) + 120 },
+        { x: gapNode.x, y: gapNode.y, z: gapNode.z ?? 0 },
+        600
+      );
     }
   }, []);
 
@@ -619,8 +488,11 @@ export default function App() {
   const handlePaperClick = useCallback((paper) => {
     const node = allNodesRef.current.find(n => n.id === paper.id);
     if (node && graphRef.current) {
-      graphRef.current.centerAt(node.x, node.y, 600);
-      graphRef.current.zoom(3, 600);
+      graphRef.current.cameraPosition(
+        { x: node.x, y: node.y, z: (node.z ?? 0) + 100 },
+        { x: node.x, y: node.y, z: node.z ?? 0 },
+        600
+      );
       handleNodeClick(node);
     }
   }, [handleNodeClick]);
@@ -649,7 +521,8 @@ export default function App() {
     // Place tooltip at midpoint of edge in screen coords
     const midX = ((srcNode.x ?? 0) + (dstNode.x ?? 0)) / 2;
     const midY = ((srcNode.y ?? 0) + (dstNode.y ?? 0)) / 2;
-    const screen = graphRef.current?.graph2ScreenCoords(midX, midY);
+    const midZ = ((srcNode.z ?? 0) + (dstNode.z ?? 0)) / 2;
+    const screen = graphRef.current?.graph2ScreenCoords(midX, midY, midZ);
     const wrapRect = graphWrap.current?.getBoundingClientRect();
     const tx = (screen?.x ?? 0) + (wrapRect?.left ?? 0);
     const ty = (screen?.y ?? 0) + (wrapRect?.top  ?? 0);
@@ -698,24 +571,65 @@ export default function App() {
     const fg = graphRef.current;
     if (!fg) return;
     try {
-      fg.d3Force('charge')?.strength(-260);
+      fg.d3Force('charge')?.strength(-280);
       fg.d3Force('link')
-        ?.distance(link => link.kind === 'HasTopic' ? 90 : link.kind === 'Cites' ? 130 : 110)
-        .strength(link => link.kind === 'HasTopic' ? 0.2 : 0.35);
+        ?.distance(link => link.kind === 'HasTopic' ? 80 : link.kind === 'Cites' ? 120 : 100)
+        .strength(link => link.kind === 'HasTopic' ? 0.18 : 0.32);
+      // z-axis spread so graph uses full 3D depth
+      const zbody = fg.d3Force('z');
+      if (!zbody) {
+        const sim = fg.d3Force('charge');
+        // add a mild z-centering force via the simulation directly
+        try {
+          fg.d3Force('z', null); // no-op if unsupported
+        } catch (_) {}
+      }
       if (andReheat) fg.d3ReheatSimulation?.();
     } catch (e) { /* ignore if forces not ready */ }
   }, []);
 
-  // Apply forces shortly after mount so ForceGraph2D is initialised
+  // Apply forces + scene lighting shortly after mount
   useEffect(() => {
-    const t = setTimeout(() => configureForces(false), 300);
+    const t = setTimeout(() => {
+      configureForces(false);
+      // Add richer lighting to the Three.js scene
+      const scene = graphRef.current?.scene?.();
+      if (scene) {
+        // Remove default lights if any, then add our own
+        const toRemove = [];
+        scene.traverse(obj => { if (obj.isLight) toRemove.push(obj); });
+        toRemove.forEach(l => scene.remove(l));
+
+        const ambient = new THREE.AmbientLight(0x1a1040, 2.2);
+        scene.add(ambient);
+
+        const key = new THREE.DirectionalLight(0xc9b8ff, 3.5);
+        key.position.set(200, 300, 200);
+        scene.add(key);
+
+        const fill = new THREE.DirectionalLight(0x00bfa5, 1.8);
+        fill.position.set(-200, -100, 100);
+        scene.add(fill);
+
+        const rim = new THREE.DirectionalLight(0xffffff, 1.2);
+        rim.position.set(0, -300, -200);
+        scene.add(rim);
+      }
+    }, 400);
     return () => clearTimeout(t);
   }, [configureForces]);
 
   // ─── Canvas draw (memoized on selected node) ───────────────────────────────
-  const selectedId   = popup?.node?.id ?? null;
-  const drawNode     = useMemo(() => makeDrawNode(selectedId, pulsingNodesRef), [selectedId]);
-  const drawLinkCb   = useCallback((link, ctx, scale) => drawLink(link, ctx, scale, hoveredLinkRef), []);
+  const selectedId      = popup?.node?.id ?? null;
+  const nodeThreeObject = useMemo(() => makeNodeThreeObject(selectedId), [selectedId]);
+
+  const linkColor   = useCallback(l =>
+    l.kind === "Cites" ? "#ffab40" : l.kind === "HasTopic" ? "#00bfa5" :
+    l.kind === "NearGap" ? "#ffffff" : "#4fc3f7", []);
+  const linkWidth   = useCallback(l => l.kind === "Cites" ? 1.5 : 0.5, []);
+  const linkOpacity = useCallback(l =>
+    l.kind === "Cites" ? 0.8 : l.kind === "HasTopic" ? 0.25 :
+    l.kind === "NearGap" ? 0.2 : 0.35, []);
 
   const papers = allNodesRef.current.filter(n => n.kind === "Paper");
   const [minY, maxY]     = yearRange;
@@ -835,30 +749,28 @@ export default function App() {
           )}
 
           <div style={{ position: "absolute", inset: 0, zIndex: 1, display: viewMode === "timeline" ? "none" : "block" }}>
-            <ForceGraph2D
+            <ForceGraph3D
               ref={graphRef}
               graphData={graphData}
-              width={graphDims.w}
-              height={graphDims.h}
-              nodeCanvasObject={drawNode}
-              nodeCanvasObjectMode={() => "replace"}
-              linkCanvasObject={drawLinkCb}
-              linkCanvasObjectMode={() => "replace"}
+              nodeThreeObject={nodeThreeObject}
+              nodeThreeObjectExtend={false}
+              linkColor={linkColor}
+              linkWidth={linkWidth}
+              linkOpacity={linkOpacity}
+              linkDirectionalParticles={l => l.kind === "Cites" ? 3 : 0}
+              linkDirectionalParticleColor={() => "#ffab40"}
+              linkDirectionalParticleWidth={1.8}
+              linkDirectionalParticleSpeed={0.004}
               onNodeClick={handleNodeClick}
               onLinkHover={handleLinkHover}
-              backgroundColor="transparent"
-              cooldownTicks={300}
+              backgroundColor="#00000000"
+              cooldownTicks={220}
               d3AlphaDecay={0.02}
-              d3VelocityDecay={0.3}
-              nodeLabel={() => ""}
-              nodePointerAreaPaint={(node, color, ctx) => {
-                const r = 6 + Math.min(Math.sqrt((node.citation_count ?? 0)) * 0.9, 12) + 6;
-                ctx.fillStyle = color;
-                ctx.beginPath();
-                ctx.arc(node.x ?? 0, node.y ?? 0, r, 0, Math.PI * 2);
-                ctx.fill();
-              }}
-              onEngineStop={() => { if (status === "done") graphRef.current?.zoomToFit(500, 60); }}
+              d3VelocityDecay={0.28}
+              nodeLabel={node => node.title ?? node.keyword ?? node.description ?? ""}
+              onEngineStop={() => { if (status === "done") graphRef.current?.zoomToFit(500, 80); }}
+              enableNodeDrag={true}
+              showNavInfo={false}
             />
           </div>
 
@@ -930,7 +842,7 @@ export default function App() {
             <button
               onClick={() => {
                 configureForces(true);
-                setTimeout(() => graphRef.current?.zoomToFit(700, 80), 1200);
+                setTimeout(() => graphRef.current?.zoomToFit(700, 100), 1200);
               }}
               style={{ fontSize: 9, padding: "2px 8px", borderRadius: 12, border: "1px solid rgba(79,195,247,0.3)", background: "rgba(79,195,247,0.08)", color: "var(--accent-aurora)", cursor: "pointer", letterSpacing: "0.06em" }}
             >
@@ -969,7 +881,10 @@ export default function App() {
         <VoiceAgent
           onSearch={runQuery}
           onReset={resetGraph}
-          onZoom={factor => graphRef.current?.zoom(factor)}
+          onZoom={factor => {
+              const cam = graphRef.current?.cameraPosition();
+              if (cam) graphRef.current?.cameraPosition({ ...cam, z: cam.z / factor }, undefined, 300);
+            }}
           onFilterYear={year => setYearRange([year, dataMax])}
           selectedNode={popup?.node ?? null}
           gapCount={stats.gaps}
