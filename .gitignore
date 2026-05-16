@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+.jac/
+.claude-flow/
+frontend/node_modules/
+frontend/dist/
+frontend/.claude-flow/
+*.egg-info/
+.DS_Store

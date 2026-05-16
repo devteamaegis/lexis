@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lexis — Research Gap Intelligence</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --space-void:   #020408;
+        --space-deep:   #050d1a;
+        --space-nebula: #0a1628;
+        --star-white:   #f0f4ff;
+        --star-dim:     #6b7fa3;
+        --star-faint:   #2a3a5c;
+        --accent-aurora: #4fc3f7;
+        --accent-pulse:  #7c4dff;
+        --accent-teal:   #00bfa5;
+        --accent-gap:    #ffffff;
+        --accent-amber:  #ffab40;
+        --glow-purple:   rgba(124,77,255,0.15);
+        --glow-teal:     rgba(0,191,165,0.15);
+        --glow-blue:     rgba(79,195,247,0.2);
+      }
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; overflow: hidden; background: var(--space-void); color: var(--star-white); }
+      body { font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 13px; }
+      input, button, select, textarea { font-family: 'Space Grotesk', system-ui, sans-serif; }
+      ::-webkit-scrollbar { width: 4px; }
+      ::-webkit-scrollbar-track { background: var(--space-deep); }
+      ::-webkit-scrollbar-thumb { background: var(--star-faint); border-radius: 2px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

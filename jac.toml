@@ -1,0 +1,16 @@
+[project]
+name = "lexis"
+version = "0.1.0"
+description = "Lexis — Literature EXploration Intelligence System"
+entry-point = "lexis.jac"
+
+[dependencies]
+byllm = ">=0.6.5"
+
+[plugins.byllm]
+[plugins.byllm.model]
+name = "anthropic/claude-haiku-4-5"
+
+[plugins.byllm.call_params]
+max_tokens = 1024
+temperature = 0.0
